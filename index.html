@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>水都去哪儿了 - 环保词语游戏</title>
+  
+  <!-- 引入样式和运行环境 (需要联网使用) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* 核心下落动画：GPU加速 */
+    @keyframes fallDown {
+      0% { top: -20%; opacity: 0; }
+      5% { opacity: 1; }
+      95% { opacity: 1; }
+      100% { top: 120%; opacity: 0; }
+    }
+    
+    /* 水滴形状 */
+    .water-drop {
+      border-radius: 50% 0 50% 50%;
+      transform: rotate(-45deg);
+      box-shadow: inset -5px -5px 10px rgba(0,0,0,0.2), 2px 2px 5px rgba(0,0,0,0.1);
+      transition: background-color 0.2s;
+    }
+    .drop-text { transform: rotate(45deg); }
+    
+    /* 错误摇摆动画 */
+    @keyframes shake {
+      0%, 100% { transform: translateX(0) rotate(-45deg); }
+      25% { transform: translateX(-6px) rotate(-45deg); }
+      75% { transform: translateX(6px) rotate(-45deg); }
+    }
+    .animate-shake { animation: shake 0.4s ease-in-out; }
+    
+    .emoji-drop { filter: drop-shadow(0px 4px 4px rgba(0, 0, 0, 0.25)); }
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+  </style>
+</head>
+<body class="bg-blue-50 overflow-hidden">
+  <div id="root"></div>
+
+  <!-- 游戏逻辑脚本 -->
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+
+    // 词库数据 (深度扩充：包含整个意思和句子的拼音与英文翻译，防止直接泄露答案)
+    const vocabulary = [
+      { 
+        word: "因素", 
+        pinyin: "yīn sù", 
+        meaning: "事物发生的原因或者条件", 
+        meaningPinyin: "shì wù fā shēng de yuán yīn huò zhě tiáo jiàn",
+        meaningEn: "The reasons or conditions for things to happen",
+        sentence: "成功的重要____是不断的努力。",
+        sentencePinyin: "chéng gōng de zhòng yào [ shén me ] shì bù duàn de nǔ lì.",
+        sentenceEn: "An important [blank] for success is continuous effort." 
+      },
+      { 
+        word: "水喉", 
+        pinyin: "shuǐ hóu", 
+        meaning: "水龙头", 
+        meaningPinyin: "shuǐ lóng tóu",
+        meaningEn: "Water tap or faucet",
+        sentence: "洗完手后，请记得关紧____。",
+        sentencePinyin: "xǐ wán shǒu hòu，qǐng jì de guān jǐn [ shén me ].",
+        sentenceEn: "After washing your hands, please remember to turn off the [blank] tightly."
+      },
+      { 
+        word: "资源", 
+        pinyin: "zī yuán", 
+        meaning: "生活、生产时用的材料", 
+        meaningPinyin: "shēng huó、shēng chǎn shí yòng de cái liào",
+        meaningEn: "Materials used for living and production",
+        sentence: "水是地球上非常宝贵的自然____。",
+        sentencePinyin: "shuǐ shì dì qiú shàng fēi cháng bǎo guì de zì rán [ shén me ].",
+        sentenceEn: "Water is a very precious natural [blank] on Earth." 
+      },
+      { 
+        word: "艰巨", 
+        pinyin: "jiān jù", 
+        meaning: "形容非常的困难", 
+        meaningPinyin: "xíng róng fēi cháng de kùn nán",
+        meaningEn: "Describes something as very difficult or arduous",
+        sentence: "清理海洋垃圾是一项十分____的任务。",
+        sentencePinyin: "qīng lǐ hǎi yáng lā jī shì yī xiàng shí fēn [ shén me ] de rèn wù.",
+        sentenceEn: "Cleaning up marine trash is a very [blank] task." 
+      },
+      { 
+        word: "昂贵", 
+        pinyin: "áng guì", 
+        meaning: "价格很高", 
+        meaningPinyin: "jià gé hěn gāo",
+        meaningEn: "Very high in price; expensive",
+        sentence: "这台净水器的价格非常____。",
+        sentencePinyin: "zhè tái jìng shuǐ qì de jià gé fēi cháng [ shén me ].",
+        sentenceEn: "The price of this water purifier is very [blank]." 
+      },
+      { 
+        word: "消耗", 
+        pinyin: "xiāo hào", 
+        meaning: "因为使用而减少", 
+        meaningPinyin: "yīn wèi shǐ yòng ér jiǎn shǎo",
+        meaningEn: "To decrease or consume through use",
+        sentence: "洗车会____大量的自来水。",
+        sentencePinyin: "xǐ chē huì [ shén me ] dà liàng de zì lái shuǐ.",
+        sentenceEn: "Washing a car will [blank] a large amount of tap water." 
+      },
+      { 
+        word: "干旱", 
+        pinyin: "gān hàn", 
+        meaning: "因水量不足而干燥", 
+        meaningPinyin: "yīn shuǐ liàng bù zú ér gān zào",
+        meaningEn: "Dry due to insufficient water; drought",
+        sentence: "由于几个月没有下雨，农田严重____。",
+        sentencePinyin: "yóu yú jǐ gè yuè méi yǒu xià yǔ，nóng tián yán zhòng [ shén me ].",
+        sentenceEn: "Because it hasn't rained for several months, the farmland is severely [blank]." 
+      },
+      { 
+        word: "扩大", 
+        pinyin: "kuò dà", 
+        meaning: "使范围、规模等增大", 
+        meaningPinyin: "shǐ fàn wéi、guī mó děng zhēng dà",
+        meaningEn: "To increase the scope, scale, or size",
+        sentence: "为了收集更多雨水，学校决定____蓄水池。",
+        sentencePinyin: "wèi le shōu jí gèng duō yǔ shuǐ，xué xiào jué dìng [ shén me ] xù shuǐ chí.",
+        sentenceEn: "In order to collect more rainwater, the school decided to [blank] the reservoir." 
+      },
+      { 
+        word: "蓄水池", 
+        pinyin: "xù shuǐ chí", 
+        meaning: "储蓄水的人工池", 
+        meaningPinyin: "chǔ xù shuǐ de rén gōng chí",
+        meaningEn: "An artificial pool for storing water",
+        sentence: "下大雨时，雨水会顺着管道流进地下____。",
+        sentencePinyin: "xià dà yǔ shí，yǔ shuǐ huì shùn zhe guǎn dào liú jìn dì xià [ shén me ].",
+        sentenceEn: "During heavy rain, the rainwater will flow down the pipes into the underground [blank]." 
+      },
+      { 
+        word: "洗澡", 
+        pinyin: "xǐ zǎo", 
+        meaning: "用水清洗身体", 
+        meaningPinyin: "yòng shuǐ qīng xǐ shēn tǐ",
+        meaningEn: "To clean the body with water; take a bath/shower",
+        sentence: "为了节约用水，我们应该缩短____的时间。",
+        sentencePinyin: "wèi le jié yuē yòng shuǐ，wǒ men yīng gāi suō duǎn [ shén me ] de shí jiān.",
+        sentenceEn: "In order to save water, we should shorten the time for [blank]." 
+      },
+      { 
+        word: "浴室", 
+        pinyin: "yù shì", 
+        meaning: "洗澡的房间", 
+        meaningPinyin: "xǐ zǎo de fáng jiān",
+        meaningEn: "The room for taking a bath; bathroom",
+        sentence: "____里的水管漏水了，需要赶快修理。",
+        sentencePinyin: "[ shén me ] lǐ de shuǐ guǎn lòu shuǐ le，xū yào gǎn kuài xiū lǐ.",
+        sentenceEn: "The water pipe in the [blank] is leaking and needs to be repaired quickly." 
+      },
+      { 
+        word: "趋势", 
+        pinyin: "qū shì", 
+        meaning: "事物向某个方面发展", 
+        meaningPinyin: "shì wù xiàng mǒu gè fāng miàn fā zhǎn",
+        meaningEn: "The tendency or direction of development of things",
+        sentence: "使用回收水资源是未来的发展____。",
+        sentencePinyin: "shǐ yòng huí shōu shuǐ zī yuán shì wèi lái de fā zhǎn [ shén me ].",
+        sentenceEn: "Using recycled water resources is the development [blank] of the future." 
+      },
+      { 
+        word: "开源节流", 
+        pinyin: "kāi yuán jié liú", 
+        meaning: "寻找开启的源头，并且节制消耗的流量", 
+        meaningPinyin: "xún zhǎo kāi qǐ de yuán tóu，bìng qiě jié zhì xiāo hào de liú liàng",
+        meaningEn: "To broaden sources of income and reduce expenditure",
+        sentence: "面对水资源短缺，我们必须做到____。",
+        sentencePinyin: "miàn duì shuǐ zī yuán duǎn quē，wǒ men bì xū zuò dào [ shén me ].",
+        sentenceEn: "Faced with water scarcity, we must practice [blank]." 
+      }
+    ];
+
+    // 音效生成器
+    const playSound = (type) => {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        if (type === 'drop') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(600, ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.3, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+          osc.start(); osc.stop(ctx.currentTime + 0.1);
+        } else if (type === 'error') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(150, ctx.currentTime);
+          gain.gain.setValueAtTime(0.1, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+          osc.start(); osc.stop(ctx.currentTime + 0.2);
+        } else if (type === 'bonus') {
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(800, ctx.currentTime);
+          osc.frequency.setValueAtTime(1200, ctx.currentTime + 0.1);
+          gain.gain.setValueAtTime(0.2, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+          osc.start(); osc.stop(ctx.currentTime + 0.2);
+        } else if (type === 'penalty') {
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(100, ctx.currentTime);
+          gain.gain.setValueAtTime(0.2, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+          osc.start(); osc.stop(ctx.currentTime + 0.3);
+        }
+      } catch (e) {
+        // 忽略音频播放错误
+      }
+    };
+
+    function App() {
+      const [gameState, setGameState] = useState('start'); 
+      const [score, setScore] = useState(0);
+      const [correctCount, setCorrectCount] = useState(0);
+      const [questionIndex, setQuestionIndex] = useState(0);
+      const [time, setTime] = useState(0);
+      const [mistakes, setMistakes] = useState([]);
+      
+      const [currentQuestion, setCurrentQuestion] = useState(null);
+      const [items, setItems] = useState([]);
+      const [extraItems, setExtraItems] = useState([]); 
+      
+      // 辅助功能状态
+      const [showPinyin, setShowPinyin] = useState(false);
+      const [showTranslation, setShowTranslation] = useState(false);
+      const [hintUsed, setHintUsed] = useState(false);
+
+      const totalQuestions = 15;
+
+      // 游戏计时器
+      useEffect(() => {
+        let timer;
+        if (gameState === 'playing') {
+          timer = setInterval(() => setTime(t => t + 1), 1000);
+        }
+        return () => clearInterval(timer);
+      }, [gameState]);
+
+      // 生成新题目和水滴
+      const generateQuestion = useCallback(() => {
+        // 重置当前题目的辅助状态
+        setShowPinyin(false);
+        setShowTranslation(false);
+        setHintUsed(false);
+
+        const targetWordObj = vocabulary[Math.floor(Math.random() * vocabulary.length)];
+        const questionTypes = ['pinyin', 'meaning', 'sentence'];
+        const type = questionTypes[Math.floor(Math.random() * questionTypes.length)];
+        
+        let qText = "";
+        let pinyinHelper = "";
+        let translationHelper = "";
+        let ttsText = "";
+
+        // 针对不同题目类型，分配对应的题目辅助内容，防止泄露答案
+        if (type === 'pinyin') {
+          qText = `看拼音: ${targetWordObj.pinyin}`;
+          pinyinHelper = "（题目上方已经是拼音啦！）";
+          translationHelper = "（这题是看拼音选中文，请听朗读辅助）";
+          ttsText = targetWordObj.word; 
+        } else if (type === 'meaning') {
+          qText = `看意思: ${targetWordObj.meaning}`;
+          pinyinHelper = targetWordObj.meaningPinyin;
+          translationHelper = targetWordObj.meaningEn;
+          ttsText = targetWordObj.meaning;
+        } else {
+          qText = `选词填空: ${targetWordObj.sentence}`;
+          pinyinHelper = targetWordObj.sentencePinyin;
+          translationHelper = targetWordObj.sentenceEn;
+          ttsText = targetWordObj.sentence.replace(/____/g, '什么'); 
+        }
+
+        setCurrentQuestion({ 
+          targetWord: targetWordObj.word, 
+          text: qText, 
+          pinyinHelper,
+          translationHelper,
+          ttsText,
+          fullObj: targetWordObj 
+        });
+
+        const options = [targetWordObj.word];
+        while (options.length < 4) {
+          const randomWord = vocabulary[Math.floor(Math.random() * vocabulary.length)].word;
+          if (!options.includes(randomWord)) options.push(randomWord);
+        }
+        options.sort(() => Math.random() - 0.5);
+
+        // 水滴掉落时间随题目增加变短(更快)
+        const baseDuration = 14 - (questionIndex * 0.4); 
+
+        const newItems = options.map((word, index) => ({
+          id: `word-${questionIndex}-${index}`,
+          text: word,
+          left: 10 + index * 22 + Math.random() * 5, 
+          duration: baseDuration + Math.random() * 2, 
+          delay: Math.random() * 1.5, 
+          isError: false,
+          isCorrect: word === targetWordObj.word
+        }));
+
+        setItems(newItems);
+      }, [questionIndex]);
+
+      // 监听进入下一题或结束游戏
+      useEffect(() => {
+        if (gameState === 'playing' && items.length === 0) {
+          if (questionIndex >= totalQuestions) {
+            setGameState('end');
+          } else {
+            generateQuestion();
+          }
+        }
+      }, [gameState, items.length, questionIndex, generateQuestion]);
+
+      // 生成额外物品 (花朵，炸弹等)
+      useEffect(() => {
+        if (gameState !== 'playing') return;
+        const extraTimer = setInterval(() => {
+          if (Math.random() < 0.4 && extraItems.length < 3) {
+            const types = [
+              { type: 'bonus', text: '🚰', baseDur: 10 },
+              { type: 'bonus', text: '🌸', baseDur: 12 },
+              { type: 'penalty', text: '💣', baseDur: 8 }
+            ];
+            const extra = types[Math.floor(Math.random() * types.length)];
+            setExtraItems(prev => [...prev, {
+              id: `extra-${Date.now()}`,
+              ...extra,
+              left: 5 + Math.random() * 85,
+              delay: 0,
+              duration: extra.baseDur + Math.random() * 3
+            }]);
+          }
+        }, 2500);
+        return () => clearInterval(extraTimer);
+      }, [gameState, extraItems.length]);
+
+      const handleMissCorrect = useCallback(() => {
+        setQuestionIndex(prev => prev + 1);
+        setItems([]); 
+      }, []);
+
+      const startGame = () => {
+        setScore(0);
+        setCorrectCount(0);
+        setQuestionIndex(0);
+        setTime(0);
+        setMistakes([]);
+        setItems([]);
+        setExtraItems([]);
+        setGameState('playing');
+      };
+
+      const handleItemClick = (item) => {
+        if (gameState !== 'playing') return;
+        if (item.isCorrect) {
+          playSound('drop');
+          setScore(s => s + 1);
+          setCorrectCount(c => c + 1);
+          setQuestionIndex(q => q + 1);
+          setItems([]); 
+        } else {
+          if (!item.isError) {
+            playSound('error');
+            setMistakes(m => [...m, currentQuestion.targetWord]);
+            setItems(prev => prev.map(i => i.id === item.id ? { ...i, isError: true } : i));
+          }
+        }
+      };
+
+      const handleExtraClick = (item) => {
+        if (gameState !== 'playing') return;
+        if (item.type === 'bonus') {
+          playSound('bonus');
+          setScore(s => s + 2);
+        } else {
+          playSound('penalty');
+          setScore(s => Math.max(0, s - 1));
+        }
+        setExtraItems(prev => prev.filter(i => i.id !== item.id));
+      };
+
+      // 1. 提示：消除一个错误选项
+      const handleHint = () => {
+        if (hintUsed) return;
+        setHintUsed(true);
+        setItems(prev => {
+          const wrongItems = prev.filter(item => !item.isCorrect);
+          if (wrongItems.length > 0) {
+            const itemToRemove = wrongItems[Math.floor(Math.random() * wrongItems.length)];
+            return prev.filter(item => item.id !== itemToRemove.id);
+          }
+          return prev;
+        });
+      };
+
+      // 2. 朗读：读取题目内容，而不是答案
+      const handleReadAloud = () => {
+        if (!currentQuestion) return;
+        const utterance = new SpeechSynthesisUtterance(currentQuestion.ttsText);
+        utterance.lang = 'zh-CN';
+        utterance.rate = 0.85; // 放慢语速，方便学生听清题目
+        window.speechSynthesis.speak(utterance);
+      };
+
+      const downloadReport = () => {
+        const progress = Math.round((correctCount / totalQuestions) * 100);
+        let title = progress > 75 ? "节水小达人 🏆" : progress >= 50 ? "节水优秀学生 🌟" : "环保小卫士 💪";
+
+        let content = `💧 环保节水词语游戏报告 💧\n\n游戏得分: ${score} 分\n游戏用时: ${time} 秒\n收集水滴进度: ${progress}%\n获得称号: ${title}\n\n`;
+        if (mistakes.length > 0) {
+          content += `🚨 答错/错过的词语复习：\n`;
+          [...new Set(mistakes)].forEach(word => {
+            const dictWord = vocabulary.find(v => v.word === word);
+            // 报告中仍然显示核心答案的解释以供复习
+            if (dictWord) content += `- ${dictWord.word} (${dictWord.pinyin}): ${dictWord.meaning} / ${dictWord.meaningEn}\n`;
+          });
+        } else {
+          content += `🎉 太棒了！完美通关！\n`;
+        }
+
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = '水都去哪儿了-游戏报告.txt';
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      const progressPercent = Math.min(100, Math.round((questionIndex / totalQuestions) * 100));
+
+      return (
+        <div className="fixed inset-0 w-full h-full flex flex-col font-sans overflow-hidden select-none">
+          {/* 游戏开始界面 */}
+          {gameState === 'start' && (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="glass-panel p-8 rounded-3xl shadow-xl text-center max-w-lg z-10 mx-4 border-t-4 border-blue-400">
+                <div className="text-6xl mb-4 animate-bounce">💧</div>
+                <h1 className="text-3xl font-bold text-blue-800 mb-2">水都去哪儿了</h1>
+                <h2 className="text-xl text-blue-600 mb-6">环保生词大挑战</h2>
+                
+                <div className="text-left text-gray-700 mb-8 space-y-3 bg-white/50 p-4 rounded-xl text-sm md:text-base">
+                  <p>🌍 <strong>目标：</strong> 收集正确的水滴，填满蓄水池！</p>
+                  <p>💧 <strong>玩法：</strong> 根据上方提示，点击对应词语的水滴。</p>
+                  <p>❌ <strong>规则：</strong> 如果正确水滴掉地上了，就会自动进入下一题哦！</p>
+                  <p>🎁 <strong>惊喜：</strong> 偶尔掉落 🚰🌸 (加分) 或 💣 (扣分)。</p>
+                  <p>💡 <strong>帮助：</strong> 遇到困难？点击上方的提示、拼音和翻译按钮，它们会帮你读懂题目！</p>
+                </div>
+                
+                <button onClick={startGame} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-10 rounded-full text-xl transition transform hover:scale-105 shadow-lg">
+                  开始游戏
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* 游戏进行中界面 */}
+          {gameState === 'playing' && (
+            <div className="flex-1 flex flex-col relative z-10 p-2 md:p-4 max-w-5xl mx-auto w-full">
+              
+              <div className="flex justify-between items-center bg-white/80 p-3 md:p-4 rounded-2xl shadow-sm mb-2 z-20">
+                <div className="flex items-center gap-4">
+                  <div className="text-lg md:text-xl font-bold text-blue-700">得分: {score}</div>
+                  <div className="text-gray-500 font-mono">⏱ {time}s</div>
+                </div>
+                
+                <div className="flex-1 max-w-xs mx-4">
+                  <div className="text-xs md:text-sm text-blue-800 font-bold mb-1 flex justify-between">
+                    <span>蓄水池进度</span>
+                    <span>{progressPercent}%</span>
+                  </div>
+                  <div className="h-4 md:h-6 w-full bg-gray-200 rounded-full overflow-hidden border-2 border-blue-200 relative">
+                    <div className="h-full bg-blue-500 transition-all duration-500 ease-out flex items-center justify-end pr-2" style={{ width: `${progressPercent}%` }}>
+                      <span className="text-white text-[10px] md:text-xs opacity-80">〰️</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="text-gray-500 text-sm md:text-base">题数: {questionIndex + 1}/{totalQuestions}</div>
+              </div>
+
+              {currentQuestion && (
+                <div className="bg-yellow-50 border-2 border-yellow-200 p-3 md:p-4 rounded-2xl shadow-md mb-2 z-20 flex flex-col items-center">
+                  {/* 题目展示 */}
+                  <h2 className="text-lg md:text-2xl font-bold text-gray-800 tracking-wide text-center">
+                    {currentQuestion.text.split('____').map((part, i, arr) => (
+                      <React.Fragment key={i}>
+                        {part}
+                        {i !== arr.length - 1 && <span className="inline-block w-12 md:w-16 border-b-2 border-gray-800 mx-1"></span>}
+                      </React.Fragment>
+                    ))}
+                  </h2>
+
+                  {/* 动态显示：现在显示的是题目的拼音和翻译，不再泄露答案 */}
+                  {(showPinyin || showTranslation) && (
+                    <div className="mt-2 p-2 px-4 w-full bg-white/60 rounded-xl border border-gray-200 flex flex-col gap-1 items-center">
+                      {showPinyin && <span className="text-green-700 font-medium"><strong>拼音:</strong> {currentQuestion.pinyinHelper}</span>}
+                      {showTranslation && <span className="text-purple-700 font-medium"><strong>翻译:</strong> {currentQuestion.translationHelper}</span>}
+                    </div>
+                  )}
+
+                  {/* 辅助工具栏 */}
+                  <div className="flex flex-wrap justify-center gap-2 md:gap-4 mt-3">
+                    <button 
+                      onClick={handleHint} 
+                      disabled={hintUsed}
+                      className="flex items-center gap-1 px-3 py-1.5 md:px-4 md:py-2 text-sm md:text-base bg-blue-100 text-blue-700 rounded-full shadow-sm hover:bg-blue-200 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    >
+                      💡 提示(去错)
+                    </button>
+                    <button 
+                      onClick={() => setShowPinyin(true)} 
+                      className="flex items-center gap-1 px-3 py-1.5 md:px-4 md:py-2 text-sm md:text-base bg-green-100 text-green-700 rounded-full shadow-sm hover:bg-green-200 transition"
+                    >
+                      🔤 拼读题目
+                    </button>
+                    <button 
+                      onClick={() => setShowTranslation(true)} 
+                      className="flex items-center gap-1 px-3 py-1.5 md:px-4 md:py-2 text-sm md:text-base bg-purple-100 text-purple-700 rounded-full shadow-sm hover:bg-purple-200 transition"
+                    >
+                      🌐 翻译题目
+                    </button>
+                    <button 
+                      onClick={handleReadAloud} 
+                      className="flex items-center gap-1 px-3 py-1.5 md:px-4 md:py-2 text-sm md:text-base bg-orange-100 text-orange-700 rounded-full shadow-sm hover:bg-orange-200 transition"
+                    >
+                      📢 朗读题目
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 动画掉落区域 */}
+              <div className="flex-1 relative overflow-hidden bg-white/40 rounded-2xl border-2 border-blue-100 backdrop-blur-sm">
+                
+                {/* 词语水滴 */}
+                {items.map(item => (
+                  <div
+                    key={item.id}
+                    className="absolute w-20 h-20 md:w-24 md:h-24 z-10"
+                    style={{ 
+                      left: `${item.left}%`, 
+                      animation: `fallDown ${item.duration}s linear ${item.delay}s both` 
+                    }}
+                    onAnimationEnd={(e) => {
+                      if (e.animationName === 'fallDown') {
+                        if (item.isCorrect) handleMissCorrect();
+                        else setItems(prev => prev.filter(i => i.id !== item.id));
+                      }
+                    }}
+                  >
+                    <div
+                      onClick={() => handleItemClick(item)}
+                      className={`cursor-pointer w-full h-full flex items-center justify-center water-drop transition-colors
+                        ${item.isError ? 'bg-red-500 animate-shake' : 'bg-blue-400 hover:bg-blue-500'}
+                      `}
+                    >
+                      <span className="drop-text text-white font-bold text-base md:text-xl drop-shadow-md">
+                        {item.text}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+
+                {/* 额外奖励/惩罚物品 */}
+                {extraItems.map(item => (
+                  <div
+                    key={item.id}
+                    onClick={() => handleExtraClick(item)}
+                    className="absolute cursor-pointer text-4xl md:text-5xl emoji-drop hover:scale-110 transition-transform z-0"
+                    style={{ 
+                      left: `${item.left}%`, 
+                      animation: `fallDown ${item.duration}s linear ${item.delay}s both` 
+                    }}
+                    onAnimationEnd={(e) => {
+                      if (e.animationName === 'fallDown') {
+                        setExtraItems(prev => prev.filter(i => i.id !== item.id));
+                      }
+                    }}
+                  >
+                    {item.text}
+                  </div>
+                ))}
+
+                <div className="absolute bottom-0 w-full h-8 bg-blue-500/20 wave-bg pointer-events-none"></div>
+              </div>
+            </div>
+          )}
+
+          {/* 游戏结束界面 */}
+          {gameState === 'end' && (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="glass-panel p-8 rounded-3xl shadow-xl text-center max-w-lg z-10 mx-4 border-t-4 border-green-400">
+                <div className="text-6xl mb-4">
+                  {progressPercent > 75 ? '🏆' : progressPercent >= 50 ? '🌟' : '💪'}
+                </div>
+                <h2 className="text-3xl font-bold text-gray-800 mb-2">游戏结束！</h2>
+                
+                <div className="my-6 space-y-2 text-lg">
+                  <p>最终得分: <span className="font-bold text-blue-600">{score}</span> 分</p>
+                  <p>游戏用时: <span className="font-bold text-blue-600">{time}</span> 秒</p>
+                  <p>蓄水进度: <span className="font-bold text-blue-600">{progressPercent}%</span></p>
+                </div>
+
+                <div className="bg-green-100 text-green-800 p-4 rounded-xl mb-8 font-bold text-xl shadow-inner">
+                  {progressPercent > 75 
+                    ? '太棒了！你是真正的 节水小达人！' 
+                    : progressPercent >= 50 
+                      ? '做得好！你是一名 节水优秀学生！'
+                      : '你要努力节水，为环保出一份力哦！'}
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  <button onClick={downloadReport} className="bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-xl transition transform hover:scale-105 shadow-md">
+                    📄 下载游戏成绩报告
+                  </button>
+                  <button onClick={startGame} className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-xl transition transform hover:scale-105 shadow-md">
+                    🔄 再玩一次
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 背景云朵和树木装饰 */}
+          <div className="fixed top-0 left-0 w-full h-full pointer-events-none z-[-1] overflow-hidden">
+            <div className="absolute top-10 left-10 text-4xl opacity-30">☁️</div>
+            <div className="absolute top-24 right-16 text-5xl opacity-30">☁️</div>
+            <div className="absolute bottom-10 left-1/4 text-6xl opacity-20">🌿</div>
+            <div className="absolute bottom-10 right-1/4 text-5xl opacity-20">🌲</div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
